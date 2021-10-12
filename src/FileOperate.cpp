@@ -24,14 +24,17 @@ void FileOperate::fileUpload()
     HttpFormdataParser parser;
     if (parser.parse(server_task->get_req()))
     {
+        printf("enter parse sucess=====");
         HttpFormdataCursor cursor(&parser);
         std::string name;
         std::string filename;
         std::string value;
         while (cursor.next(name))
         {
+            printf("enter parse suces while ddddds=====name:%s,filename:%s", name, filename);
             if (cursor.is_file(name, filename))
             {
+                printf("enter is file true==========");
                 if (filepath.back() != '/')
                     filepath.push_back('/');
 
@@ -50,7 +53,7 @@ void FileOperate::fileUpload()
             }
             else if (cursor.get_string(name, value))
             {
-                printf("maybe pair \"%s=%s\" \n", name.c_str(), value.c_str());
+               printf("maybe pair \"%s=%s\" \n", name.c_str(), value.c_str());
             }
         }
     }
@@ -80,8 +83,10 @@ void FileOperate::pwrite_callback(WFFileIOTask* task)
     else
     {
         time_t now = time(0);
-        char* dt = ctime(&now);
-        std::cout << "响应结束时间：" << dt << std::endl;
+        //char* dt = ctime(&now);
+        char buffer[9] = { 0 };
+        strftime(buffer, 9, "%H:%M:%S", localtime(&now));
+        std::cout << "response time is：" << buffer << std::endl;
         resp->set_status_code("200");
         resp->append_output_body("<html>200 success.</html>\r\n");
     }

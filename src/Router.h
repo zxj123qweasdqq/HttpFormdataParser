@@ -16,6 +16,7 @@ public:
 	Router(const char* className, const char* method, WFHttpTask* server_task, const char* root);
 	void* CreateFileOperate();
 	void CreateTask();
+	void* CreateProcessPost();
 public:
 	std::function<void* (void)> Functional;
 };

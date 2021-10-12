@@ -1,5 +1,6 @@
 #include"Router.h"
 #include"FileOperate.h"
+#include"ProcessPost.h"
 #include"ReflectorFactory.h"
 #include <string.h>
 
@@ -25,6 +26,20 @@ Router::Router(const char* className, const char* method, WFHttpTask* server_tas
         (t->*ptr)();
         delete t;
     }
+    else if (!strcmp(className, "ProcessPost"))
+    {
+        auto  test = std::bind(&Router::CreateProcessPost, this);
+        ReflectorFactory::getInstance().registClass("ProcessPost", test);
+        ProcessPost* t = (ProcessPost*)ReflectorFactory::getInstance().getClassByName("ProcessPost");
+        if (!t) {
+            std::cout << "get instnce ProcessPost err;" << std::endl;
+            return;
+        }
+        void (ProcessPost:: * ptr)() = t->funcList.at(method);
+        t->setServerInfo(server_task);
+        (t->*ptr)();
+        delete t;
+    }
     else if (className == "task")
     {
         std::cout << "task API exec" << std::endl;
@@ -39,4 +54,11 @@ void* Router::CreateFileOperate()
 
 void Router::CreateTask()
 {
+}
+
+void* Router::CreateProcessPost()
+{
+    ProcessPost* t = new ProcessPost;
+    return (t == NULL) ? NULL : t;
+
 }

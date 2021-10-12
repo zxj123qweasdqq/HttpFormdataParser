@@ -36,7 +36,7 @@ namespace protocol
         size_t find_next_boundary(const char *data, size_t _offset);
         bool parse_boundary(std::string &);
         bool at_body_end();
-        bool is_last_boundary(const void *data);
+        //bool is_last_boundary(const void *data);
         void generate_kmp_next_array();
         void parse_part(const void *data);
 

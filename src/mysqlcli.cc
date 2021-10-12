@@ -19,6 +19,6 @@ Mysqlcli::Mysqlcli()
     const char* query = "delete from testalter_tb1 where c = 'e';";
 
 
-    WFMySQLTask* t1 = conn.create_query_task(query, task_callback);
-    t1->start();
+    //WFMySQLTask* t1 = conn.create_query_task(query, task_callback);
+   // t1->start();
 }
