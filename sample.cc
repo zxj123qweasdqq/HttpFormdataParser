@@ -32,6 +32,9 @@
 #include "workflow/WFFacilities.h"
 #include "workflow/HttpUtil.h"
 #include "HttpFormdataParser.h"
+#include "Router.h"
+#include <ctime>
+#include<iostream>
 
 using namespace protocol;
 
@@ -51,6 +54,65 @@ void pread_callback(WFFileIOTask *task)
         resp->append_output_body_nocopy(args->buf, ret);
 }
 
+const std::vector<std::string> explode(const std::string& s, const char& c)
+{
+    std::string buff{ "" };
+    std::vector<std::string> v;
+
+    for (auto n : s)
+    {
+        if (n != c) buff += n;
+        else if(n == c && buff != "") { v.push_back(buff); buff = ""; }
+    }
+    if (buff != "") v.push_back(buff);
+
+    return v;
+}
+
+void process_file_get(WFHttpTask* server_task, const char* root)
+{
+    HttpRequest* req = server_task->get_req();
+    HttpResponse* resp = server_task->get_resp();
+    const char* uri = req->get_request_uri();
+    const char* p = uri;
+
+    printf("Request-URI: %s\n", uri);
+    while (*p && *p != '?')
+        p++;
+
+    std::string abs_path(uri, p - uri);
+    abs_path = root + abs_path;
+
+
+    if (abs_path.back() == '/')
+        abs_path += "index.html";
+
+    resp->add_header_pair("Server", "Sogou C++ Workflow Server");
+
+    int fd = open(abs_path.c_str(), O_RDONLY);
+    if (fd >= 0)
+    {
+        size_t size = lseek(fd, 0, SEEK_END);
+        void* buf = malloc(size); /* As an example, assert(buf != NULL); */
+        WFFileIOTask* pread_task;
+
+        pread_task = WFTaskFactory::create_pread_task(fd, buf, size, 0,
+            pread_callback);
+        /* To implement a more complicated server, please use series' context
+         * instead of tasks' user_data to pass/store internal data. */
+        pread_task->user_data = resp; /* pass resp pointer to pread task. */
+        server_task->user_data = buf; /* to free() in callback() */
+        server_task->set_callback([](WFHttpTask* t)
+            { free(t->user_data); });
+        series_of(server_task)->push_back(pread_task);
+    }
+    else
+    {
+        resp->set_status_code("404");
+        resp->append_output_body("<html>404 Not Found.</html>");
+    }
+}
+
 void process_get(WFHttpTask *server_task, const char *root)
 {
     HttpRequest *req = server_task->get_req();
@@ -64,6 +126,8 @@ void process_get(WFHttpTask *server_task, const char *root)
 
     std::string abs_path(uri, p - uri);
     abs_path = root + abs_path;
+
+   
     if (abs_path.back() == '/')
         abs_path += "index.html";
 
@@ -153,21 +217,115 @@ void process_post(WFHttpTask *server_task, const char *root)
     }
 }
 
+void process_file_upload(WFHttpTask* server_task, const char* root)
+{
+
+    HttpFormdataParser parser;
+    if (parser.parse(server_task->get_req()))
+    {
+        HttpFormdataCursor cursor(&parser);
+        std::string name;
+        std::string filename;
+        std::string value;
+        while (cursor.next(name))
+        {
+            if (cursor.is_file(name, filename))
+            {
+                std::string filepath = root;
+                if (filepath.back() != '/')
+                    filepath.push_back('/');
+
+                const void* data;
+                size_t datasize;
+                if (cursor.get_content(name, &data, &datasize))
+                {
+                    filepath += filename;
+                    printf("received file \"%s\" with %zu bytes\n", filepath.c_str(), datasize);
+                    WFFileIOTask* pwrite_task;
+                    pwrite_task = WFTaskFactory::create_pwrite_task(filepath, data, datasize, 0, pwrite_callback);
+                    pwrite_task->user_data = server_task->get_resp();
+                    series_of(server_task)->push_back(pwrite_task);
+                }
+            }
+            else if (cursor.get_string(name, value))
+            {
+                printf("maybe pair \"%s=%s\" \n", name.c_str(), value.c_str());
+            }
+        }
+    }
+    else
+    {
+        server_task->get_resp()->set_status_code("503");
+        server_task->get_resp()->append_output_body("<html>503 Internal Server Error.</html>\r\n");
+    }
+}
+
+
 void process(WFHttpTask *server_task, const char *root)
 {
-    if (strcmp("POST", server_task->get_req()->get_method()) == 0)
+    time_t now = time(0);
+    char buffer[9] = { 0 };
+
+    strftime(buffer, 9, "%H:%M:%S", localtime(&now));
+    //char* dt = ctime(&now);
+    std::cout << "request time is£º" << buffer << std::endl;
+    HttpRequest* req = server_task->get_req();
+    HttpResponse* resp = server_task->get_resp();
+    const char* uri = req->get_request_uri();
+    const char* p = uri;
+
+    printf("Request-URI: %s\n", uri);
+    while (*p && *p != '?')
+        p++;
+
+    std::string abs_path(uri, p - uri);
+   //abs_path = root + abs_path;
+
+    std::vector<std::string> uriParts = explode(abs_path, '/');
+    if (uriParts.size() < 2) {
+        server_task->get_resp()->set_status_code("404");
+        server_task->get_resp()->append_output_body("<html>404 Not found</html>\r\n");
+    }
+    else
+    {
+        std::string className = uriParts[0];
+        std::string method = uriParts[1];
+        Router rt(className.data(), method.data(), server_task,root);
+    }
+   
+
+
+    //if (className == "File") {
+    //    if (method == "upload") {
+    //        process_file_upload(server_task, root);
+    //    }
+    //    else if (method == "get") {
+    //        process_file_get(server_task, root);
+    //    }
+    //}
+    //else if (className == "Task") {
+    //    if (method == "get") {
+    //        //unprocessed_task(server_task, root);
+    //    }
+    //    else if (method == "get") {
+    //        process_file_get(server_task, root);
+    //    }
+    //}
+    /*if (strcmp("POST", server_task->get_req()->get_method()) == 0)
     {
         process_post(server_task, root);
     }
     else if (strcmp("GET", server_task->get_req()->get_method()) == 0)
     {
         process_get(server_task, root);
-    }
-    else
-    {
-        server_task->get_resp()->set_status_code("503");
-        server_task->get_resp()->append_output_body("<html>503 internal error</html>\r\n");
-    }
+    }*/
+    //else
+    //{
+    //    server_task->get_resp()->set_status_code("503");
+    //   
+    //    //server_task->get_resp()->append_output_body("<html>503 internal error</html>\r\n")
+    //    //server_task->get_resp()->append_output_body({"code":1, "message" : "ok", "data" : {"task_id":1}}");
+    //}
 }
 
 static WFFacilities::WaitGroup wait_group(1);
@@ -177,18 +335,47 @@ void sig_handler(int signo)
     wait_group.done();
 }
 
+void  login(const char* username ,const char * password)
+{
+
+}
+
+void client_query(const char* taskid)
+{
+
+}
+
+void unprocessed_task(WFHttpTask* server_task, const char* root)
+{
+
+}
+
+void upload_file(const char * orgnizationid,const char * taskid, const char* username) 
+{
+    
+}
+
+void update_task(const char* taskid, const char* result) {
+
+}
+
+
+
+
+
 int main(int argc, char *argv[])
 {
-    if (argc != 2 && argc != 3 && argc != 5)
+   /* if (argc != 2 && argc != 3 && argc != 5)
     {
         fprintf(stderr, "%s <port> [root path] [cert file] [key file]\n",
                 argv[0]);
         exit(1);
-    }
+    }*/
 
     signal(SIGINT, sig_handler);
 
-    unsigned short port = atoi(argv[1]);
+    //unsigned short port = atoi(argv[1]);
+    unsigned short port = 8080;
 
     if (port == 0)
     {
@@ -196,7 +383,8 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    const char *root = (argc >= 3 ? argv[2] : ".");
+   // const char *root = (argc >= 3 ? argv[2] : ".");
+    const char* root = "/home/ubuntu";
     auto &&proc = std::bind(process, std::placeholders::_1, root);
     WFHttpServer server(proc);
     int ret;
